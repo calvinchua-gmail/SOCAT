@@ -1,97 +1,179 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
 <head>
-  <meta charset="utf-8">
-  <title>Test GLB on Mapbox</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.js"></script>
-  <link href="https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.css" rel="stylesheet" />
-  <script src="https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.161.0/examples/js/loaders/GLTFLoader.js"></script>
-  <style>
-    body { margin: 0; padding: 0; }
-    #map { position: absolute; top: 0; bottom: 0; width: 100%; }
-  </style>
+	<title>Threebox display buildings in 3D with auto tooltips</title>
+	<link href="https://api.mapbox.com/mapbox-gl-js/v2.2.0/mapbox-gl.css" rel="stylesheet">
+	<script src="https://api.mapbox.com/mapbox-gl-js/v2.2.0/mapbox-gl.js"></script>
+	<script src="../dist/threebox.js" type="text/javascript"></script>
+	<link href="../dist/threebox.css" rel="stylesheet" />
+	<script src="config.js"></script>
 </head>
 <body>
-  <div id="map"></div>
+	<div id='map' class='map'>
+	</div>
+	<script type="module">
 
-  <script>
-    mapboxgl.accessToken = 'pk.eyJ1IjoiY2FsdmluY2h1YSIsImEiOiJjbWg4bmZnM2gxNDlrMm1vZXp4eXhlcmtkIn0.inpVYH1p4QLFT418Q24TGg';
+		if (!config) console.error("Config not set! Make a copy of 'config_template.js', add in your access token, and save the file as 'config.js'.");
 
-    const modelOrigin = [103.47165, 1.70766];
-    const modelAltitude = 0;
-    const modelRotate = [Math.PI / 2, 0, 0];
-    const modelAsMercatorCoordinate = mapboxgl.MercatorCoordinate.fromLngLat(modelOrigin, modelAltitude);
+		mapboxgl.accessToken = config.accessToken;
 
-    const modelTransform = {
-      translateX: modelAsMercatorCoordinate.x,
-      translateY: modelAsMercatorCoordinate.y,
-      translateZ: modelAsMercatorCoordinate.z,
-      rotateX: modelRotate[0],
-      rotateY: modelRotate[1],
-      rotateZ: modelRotate[2],
-      scale: modelAsMercatorCoordinate.meterInMercatorCoordinateUnits()
-    };
+		//starting location for map
+		let popup;
+		let minZoom = 12;
+		let mapConfig = {
+			ALL: { center: [-73.985699, 40.750042, 0], zoom: 16.25, pitch: 45, bearing: 0 },
+			names: {
+				compositeSource: "composite",
+				compositeSourceLayer: "building",
+				compositeLayer: "3d-buildings"
+			}
+		}
 
-    const map = new mapboxgl.Map({
-      container: 'map',
-      style: 'mapbox://styles/mapbox/satellite-v9',
-      center: modelOrigin,
-      zoom: 18,
-      pitch: 60,
-      bearing: -60,
-      antialias: true
-    });
+		var map = new mapboxgl.Map({
+			style: 'mapbox://styles/mapbox/outdoors-v11',
+			center: mapConfig.ALL.center,
+			zoom: mapConfig.ALL.zoom,
+			pitch: mapConfig.ALL.pitch,
+			bearing: mapConfig.ALL.bearing,
+			container: 'map',
+			antialias: true,
+			hash: true
+		});
 
-    const customLayer = {
-      id: '3d-model',
-      type: 'custom',
-      renderingMode: '3d',
-      onAdd: function (map, gl) {
-        this.camera = new THREE.Camera();
-        this.scene = new THREE.Scene();
-        const light = new THREE.DirectionalLight(0xffffff, 2);
-        light.position.set(0, -70, 100).normalize();
-        this.scene.add(light);
+		// we can add Threebox to mapbox to add built-in mouseover/mouseout and click behaviors
+		window.tb = new Threebox(
+			map,
+			map.getCanvas().getContext('webgl'),
+			{
+				defaultLights: true,
+				enableSelectingFeatures: true, //change this to false to disable fill-extrusion features selection
+				enableTooltips: true // change this to false to disable default tooltips on fill-extrusion and 3D models
+			}
+		);
 
-        const loader = new THREE.GLTFLoader();
-        loader.load(
-          'https://raw.githubusercontent.com/calvinchua-gmail/SOCAT/main/Test.glb',
-          (gltf) => {
-            console.log('✅ GLB loaded successfully');
-            this.scene.add(gltf.scene);
-          },
-          undefined,
-          (error) => console.error('❌ Failed to load GLB:', error)
-        );
+		import { GUI } from 'https://threejs.org/examples/jsm/libs/lil-gui.module.min.js';
+		import Stats from 'https://threejs.org/examples/jsm/libs/stats.module.js';
 
-        this.renderer = new THREE.WebGLRenderer({ canvas: map.getCanvas(), context: gl });
-        this.renderer.autoClear = false;
-      },
-      render: function (gl, matrix) {
-        const rotationX = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(1, 0, 0), modelTransform.rotateX);
-        const rotationY = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(0, 1, 0), modelTransform.rotateY);
-        const rotationZ = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(0, 0, 1), modelTransform.rotateZ);
+		let stats, gui;
+		function animate() {
+			requestAnimationFrame(animate);
+			stats.update();
+		}
 
-        const m = new THREE.Matrix4().fromArray(matrix);
-        const l = new THREE.Matrix4()
-          .makeTranslation(modelTransform.translateX, modelTransform.translateY, modelTransform.translateZ)
-          .scale(new THREE.Vector3(modelTransform.scale, -modelTransform.scale, modelTransform.scale))
-          .multiply(rotationX)
-          .multiply(rotationY)
-          .multiply(rotationZ);
+		let api = {
+			fov: Math.atan(3 / 4) * 180 / Math.PI
+		};
 
-        this.camera.projectionMatrix = m.multiply(l);
-        this.renderer.state.reset();
-        this.renderer.render(this.scene, this.camera);
-        map.triggerRepaint();
-      }
-    };
+		function init() {
+			// stats
+			stats = new Stats();
+			map.getContainer().appendChild(stats.dom);
+			animate();
+			// gui
+			gui = new GUI();
+			// going below 2.5 degrees will start to generate serious issues with polygons in fill-extrusions and 3D meshes
+			// going above 45 degrees will also produce clipping and performance issues
+			gui.add(api, 'fov', 2.5, 45.0).step(0.1).onChange(changeFOV);
+		}
 
-    map.on('style.load', () => {
-      map.addLayer(customLayer);
-    });
-  </script>
+		function changeFOV() {
+			tb.fov = api.fov;
+		}
+
+		// The 'building' layer in the mapbox-streets vector source contains building-height
+		// data from OpenStreetMap.
+		map.on('style.load', function () {
+
+			init();
+
+			map.addLayer(createCompositeLayer());
+
+			//[jscastro] there is no need to add a layer if we are not adding 3D objects or models, we can subscribe to render to invoke update
+			map.on('render', function () {
+				tb.update();
+			})
+
+			//[jscastro] subscribe to selected/unselect extrusion feature event
+			map.on('SelectedFeatureChange', onSelectedFeatureChange);
+
+		});
+
+
+		function createCompositeLayer() {
+			let layer = {
+				'id': mapConfig.names.compositeLayer,
+				'source': mapConfig.names.compositeSource,
+				'source-layer': mapConfig.names.compositeSourceLayer,
+				'filter': ['==', 'extrude', 'true'],
+				'type': 'fill-extrusion',
+				'minzoom': minZoom,
+				'paint': {
+					'fill-extrusion-color':
+						[
+							'case',
+							['boolean', ['feature-state', 'select'], false],
+							"lightgreen",
+							['boolean', ['feature-state', 'hover'], false],
+							"lightblue",
+							'#aaa'
+						],
+
+					// use an 'interpolate' expression to add a smooth transition effect to the
+					// buildings as the user zooms in
+					'fill-extrusion-height': [
+						'interpolate',
+						['linear'],
+						['zoom'],
+						minZoom,
+						0,
+						minZoom + 0.05,
+						['get', 'height']
+					],
+					'fill-extrusion-base': [
+						'interpolate',
+						['linear'],
+						['zoom'],
+						minZoom,
+						0,
+						minZoom + 0.05,
+						['get', 'min_height']
+					],
+					'fill-extrusion-opacity': 0.9
+				}
+			};
+			return layer;
+		}
+
+		//[jscastro] handler for the feature selected UI... we will create a Mapbox popup to compare with Threebox popup
+		function onSelectedFeatureChange(e) {
+			let feature = e.detail;
+			if (feature && feature.state && feature.state.select) {
+
+				if (popup) popup.remove();
+
+				let center = [];
+				let coords = tb.getFeatureCenter(feature, null, 0);
+
+				center.push([coords[0], coords[1]]);
+
+				//TODO: this creates a Mapbox popup in the same coords the Threebox popup to see the difference
+				popup = new mapboxgl.Popup({ offset: 0 })
+					.setLngLat(center[0].slice())
+					.setHTML('<strong>' + (feature.id || feature.type) + '</strong >')
+					.addTo(map);
+
+				let geoJson = {
+					"geometry": feature.geometry,
+					"type": "Feature",
+					"properties": feature.properties
+				}
+				console.log(JSON.stringify(geoJson, null, 2))
+
+			}
+
+
+		}
+
+	</script>
 </body>
 </html>
