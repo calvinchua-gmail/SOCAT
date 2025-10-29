@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>My Rhino 3D Building on Mapbox</title>
+  <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.1.2/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.1.2/mapbox-gl.css" rel="stylesheet" />
+  <script src="https://unpkg.com/three@0.148.0/build/three.min.js"></script>
+  <script src="https://unpkg.com/three@0.148.0/examples/js/loaders/GLTFLoader.js"></script>
+  <style>
+    body { margin: 0; padding: 0; }
+    #map { width: 100vw; height: 100vh; }
+  </style>
+</head>
+<body>
+<div id="map"></div>
+
+<script>
+mapboxgl.accessToken = pk.eyJ1IjoiY2FsdmluY2h1YSIsImEiOiJjbWg4bmZnM2gxNDlrMm1vZXp4eXhlcmtkIn0.inpVYH1p4QLFT418Q24TGg
+
+const map = new mapboxgl.Map({
+  container: 'map',
+  style: 'mapbox://styles/mapbox/satellite-streets-v12',
+  center: [19.262, 42.441], // longitude, latitude of your building
+  zoom: 17,
+  pitch: 60,
+  bearing: -20,
+  antialias: true
+});
+
+map.on('load', () => {
+  const modelOrigin = [19.262, 42.441]; // same coordinates as above
+  const modelAltitude = 0;
+  const modelRotate = [Math.PI / 2, 0, 0];
+
+  const modelAsMercatorCoordinate = mapboxgl.MercatorCoordinate.fromLngLat(
+    modelOrigin,
+    modelAltitude
+  );
+
+  const modelTransform = {
+    translateX: modelAsMercatorCoordinate.x,
+    translateY: modelAsMercatorCoordinate.y,
+    translateZ: modelAsMercatorCoordinate.z,
+    rotateX: modelRotate[0],
+    rotateY: modelRotate[1],
+    rotateZ: modelRotate[2],
+    scale: modelAsMercatorCoordinate.meterInMercatorCoordinateUnits()
+  };
+
+  const THREE = window.THREE;
+  const renderer = new THREE.WebGLRenderer({
+    canvas: map.getCanvas(),
+    context: map.painter.context.gl,
+  });
+  renderer.autoClear = false;
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.Camera();
+
+  const light = new THREE.DirectionalLight(0xffffff);
+  light.position.set(0, -70, 100).normalize();
+  scene.add(light);
+
+  const loader = new THREE.GLTFLoader();
+  loader.load(
+    'https://www.dropbox.com/scl/fi/u4qfexprxao1qxg9lxta9/Test.glb?rlkey=tqq8xve4tu1qd199weaap1i2m&raw=1',
+    (gltf) => {
+      scene.add(gltf.scene);
+    },
+    undefined,
+    (error) => {
+      console.error('Error loading GLB:', error);
+    }
+  );
+
+  map.on('render', () => {
+    const rotationX = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(1,0,0), modelTransform.rotateX);
+    const rotationY = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(0,1,0), modelTransform.rotateY);
+    const rotationZ = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(0,0,1), modelTransform.rotateZ);
+
+    const m = new THREE.Matrix4().fromArray(map.transform.customLayerMatrix());
+    const l = new THREE.Matrix4()
+      .makeTranslation(modelTransform.translateX, modelTransform.translateY, modelTransform.translateZ)
+      .scale(new THREE.Vector3(modelTransform.scale, -modelTransform.scale, modelTransform.scale))
+      .multiply(rotationX).multiply(rotationY).multiply(rotationZ);
+
+    camera.projectionMatrix = m.multiply(l);
+    renderer.state.reset();
+    renderer.render(scene, camera);
+  });
+});
+</script>
+</body>
+</html>
