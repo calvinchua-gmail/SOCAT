@@ -1,96 +1,59 @@
 <!DOCTYPE html>
 <html>
-<head>
-  <meta charset="utf-8" />
-  <title>My Rhino 3D Building on Mapbox</title>
-  <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
-  <script src="https://api.mapbox.com/mapbox-gl-js/v3.1.2/mapbox-gl.js"></script>
-  <link href="https://api.mapbox.com/mapbox-gl-js/v3.1.2/mapbox-gl.css" rel="stylesheet" />
-  <script src="https://unpkg.com/three@0.148.0/build/three.min.js"></script>
-  <script src="https://unpkg.com/three@0.148.0/examples/js/loaders/GLTFLoader.js"></script>
-  <style>
-    body { margin: 0; padding: 0; }
-    #map { width: 100vw; height: 100vh; }
-  </style>
-</head>
-<body>
-<div id="map"></div>
+  <head>
+    <meta charset="utf-8" />
+    <title>Mapbox + GLB Model</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.js"></script>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.css" rel="stylesheet" />
+    <script type="module">
+      import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js";
+      import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/loaders/GLTFLoader.js";
+      import { MapboxLayer } from "https://cdn.jsdelivr.net/npm/threebox-plugin@2.2.1/dist/threebox.min.js";
 
-<script>
-mapboxgl.accessToken = pk.eyJ1IjoiY2FsdmluY2h1YSIsImEiOiJjbWg4bmZnM2gxNDlrMm1vZXp4eXhlcmtkIn0.inpVYH1p4QLFT418Q24TGg
+      // ✅ Your Mapbox access token
+      mapboxgl.accessToken = 'pk.eyJ1IjoiY2FsdmluY2h1YSIsImEiOiJjbWg4bmZnM2gxNDlrMm1vZXp4eXhlcmtkIn0.inpVYH1p4QLFT418Q24TGg';
 
-const map = new mapboxgl.Map({
-  container: 'map',
-  style: 'mapbox://styles/mapbox/satellite-streets-v12',
-  center: [19.262, 42.441], // longitude, latitude of your building
-  zoom: 17,
-  pitch: 60,
-  bearing: -20,
-  antialias: true
-});
+      const map = new mapboxgl.Map({
+        container: "map",
+        style: "mapbox://styles/mapbox/satellite-v9", // or 'streets-v12'
+        center: [103.47165, 1.70766], // ✅ Your coordinates (longitude, latitude)
+        zoom: 18,
+        pitch: 60,
+        bearing: -60,
+        antialias: true,
+      });
 
-map.on('load', () => {
-  const modelOrigin = [19.262, 42.441]; // same coordinates as above
-  const modelAltitude = 0;
-  const modelRotate = [Math.PI / 2, 0, 0];
+      map.on("style.load", () => {
+        const threebox = new Threebox(
+          map,
+          map.getCanvas().getContext("webgl"),
+          { defaultLights: true }
+        );
 
-  const modelAsMercatorCoordinate = mapboxgl.MercatorCoordinate.fromLngLat(
-    modelOrigin,
-    modelAltitude
-  );
+        const loader = new GLTFLoader();
+        loader.load(
+          "https://raw.githubusercontent.com/calvinchua-gmail/SOCAT/blob/main/Test.glb",
+          (gltf) => {
+            const model = gltf.scene;
+            model.scale.set(1, 1, 1); // adjust size if needed
+            model.rotation.x = Math.PI / 2; // fix orientation if upside down
+            const obj = threebox.Object3D({ obj: model }).setCoords([103.47165, 1.70766, 0]);
+            threebox.add(obj);
+          },
+          undefined,
+          (error) => console.error("Error loading model:", error)
+        );
+      });
+    </script>
 
-  const modelTransform = {
-    translateX: modelAsMercatorCoordinate.x,
-    translateY: modelAsMercatorCoordinate.y,
-    translateZ: modelAsMercatorCoordinate.z,
-    rotateX: modelRotate[0],
-    rotateY: modelRotate[1],
-    rotateZ: modelRotate[2],
-    scale: modelAsMercatorCoordinate.meterInMercatorCoordinateUnits()
-  };
-
-  const THREE = window.THREE;
-  const renderer = new THREE.WebGLRenderer({
-    canvas: map.getCanvas(),
-    context: map.painter.context.gl,
-  });
-  renderer.autoClear = false;
-
-  const scene = new THREE.Scene();
-  const camera = new THREE.Camera();
-
-  const light = new THREE.DirectionalLight(0xffffff);
-  light.position.set(0, -70, 100).normalize();
-  scene.add(light);
-
-  const loader = new THREE.GLTFLoader();
-  loader.load(
-    'https://www.dropbox.com/scl/fi/u4qfexprxao1qxg9lxta9/Test.glb?rlkey=tqq8xve4tu1qd199weaap1i2m&raw=1',
-    (gltf) => {
-      scene.add(gltf.scene);
-    },
-    undefined,
-    (error) => {
-      console.error('Error loading GLB:', error);
-    }
-  );
-
-  map.on('render', () => {
-    const rotationX = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(1,0,0), modelTransform.rotateX);
-    const rotationY = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(0,1,0), modelTransform.rotateY);
-    const rotationZ = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(0,0,1), modelTransform.rotateZ);
-
-    const m = new THREE.Matrix4().fromArray(map.transform.customLayerMatrix());
-    const l = new THREE.Matrix4()
-      .makeTranslation(modelTransform.translateX, modelTransform.translateY, modelTransform.translateZ)
-      .scale(new THREE.Vector3(modelTransform.scale, -modelTransform.scale, modelTransform.scale))
-      .multiply(rotationX).multiply(rotationY).multiply(rotationZ);
-
-    camera.projectionMatrix = m.multiply(l);
-    renderer.state.reset();
-    renderer.render(scene, camera);
-  });
-});
-</script>
-</body>
+    <style>
+      body { margin: 0; padding: 0; overflow: hidden; }
+      #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+  </body>
 </html>
+
