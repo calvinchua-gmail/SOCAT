@@ -1,131 +1,97 @@
 <!DOCTYPE html>
 <html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Mapbox GL + Three.js Model</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<head>
+  <meta charset="utf-8">
+  <title>Test GLB on Mapbox</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.161.0/examples/js/loaders/GLTFLoader.js"></script>
+  <style>
+    body { margin: 0; padding: 0; }
+    #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
 
-    <!-- Mapbox -->
-    <script src="https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.js"></script>
-    <link href="https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.css" rel="stylesheet" />
+  <script>
+    mapboxgl.accessToken = 'pk.eyJ1IjoiY2FsdmluY2h1YSIsImEiOiJjbWg4bmZnM2gxNDlrMm1vZXp4eXhlcmtkIn0.inpVYH1p4QLFT418Q24TGg';
 
-    <!-- Three.js -->
-    <script src="https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.161.0/examples/js/loaders/GLTFLoader.js"></script>
+    const modelOrigin = [103.47165, 1.70766];
+    const modelAltitude = 0;
+    const modelRotate = [Math.PI / 2, 0, 0];
+    const modelAsMercatorCoordinate = mapboxgl.MercatorCoordinate.fromLngLat(modelOrigin, modelAltitude);
 
-    <style>
-      body { margin: 0; padding: 0; overflow: hidden; }
-      #map { position: absolute; top: 0; bottom: 0; width: 100%; }
-    </style>
-  </head>
-  <body>
-    <div id="map"></div>
+    const modelTransform = {
+      translateX: modelAsMercatorCoordinate.x,
+      translateY: modelAsMercatorCoordinate.y,
+      translateZ: modelAsMercatorCoordinate.z,
+      rotateX: modelRotate[0],
+      rotateY: modelRotate[1],
+      rotateZ: modelRotate[2],
+      scale: modelAsMercatorCoordinate.meterInMercatorCoordinateUnits()
+    };
 
-    <script>
-      mapboxgl.accessToken = 'pk.eyJ1IjoiY2FsdmluY2h1YSIsImEiOiJjbWg4bmZnM2gxNDlrMm1vZXp4eXhlcmtkIn0.inpVYH1p4QLFT418Q24TGg';
+    const map = new mapboxgl.Map({
+      container: 'map',
+      style: 'mapbox://styles/mapbox/satellite-v9',
+      center: modelOrigin,
+      zoom: 18,
+      pitch: 60,
+      bearing: -60,
+      antialias: true
+    });
 
-      const origin = [103.47165, 1.70766]; // [lng, lat]
-      const modelOrigin = origin;
-      const modelAltitude = 0;
-      const modelRotate = [Math.PI / 2, 0, 0];
+    const customLayer = {
+      id: '3d-model',
+      type: 'custom',
+      renderingMode: '3d',
+      onAdd: function (map, gl) {
+        this.camera = new THREE.Camera();
+        this.scene = new THREE.Scene();
+        const light = new THREE.DirectionalLight(0xffffff, 2);
+        light.position.set(0, -70, 100).normalize();
+        this.scene.add(light);
 
-      const modelAsMercatorCoordinate = mapboxgl.MercatorCoordinate.fromLngLat(
-        modelOrigin,
-        modelAltitude
-      );
+        const loader = new THREE.GLTFLoader();
+        loader.load(
+          'https://raw.githubusercontent.com/calvinchua-gmail/SOCAT/main/Test.glb',
+          (gltf) => {
+            console.log('✅ GLB loaded successfully');
+            this.scene.add(gltf.scene);
+          },
+          undefined,
+          (error) => console.error('❌ Failed to load GLB:', error)
+        );
 
-      // transformation parameters to position, rotate and scale the 3D model
-      const modelTransform = {
-        translateX: modelAsMercatorCoordinate.x,
-        translateY: modelAsMercatorCoordinate.y,
-        translateZ: modelAsMercatorCoordinate.z,
-        rotateX: modelRotate[0],
-        rotateY: modelRotate[1],
-        rotateZ: modelRotate[2],
-        scale: modelAsMercatorCoordinate.meterInMercatorCoordinateUnits()
-      };
+        this.renderer = new THREE.WebGLRenderer({ canvas: map.getCanvas(), context: gl });
+        this.renderer.autoClear = false;
+      },
+      render: function (gl, matrix) {
+        const rotationX = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(1, 0, 0), modelTransform.rotateX);
+        const rotationY = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(0, 1, 0), modelTransform.rotateY);
+        const rotationZ = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(0, 0, 1), modelTransform.rotateZ);
 
-      const map = new mapboxgl.Map({
-        container: 'map',
-        style: 'mapbox://styles/mapbox/satellite-v9',
-        center: origin,
-        zoom: 18,
-        pitch: 60,
-        bearing: -60,
-        antialias: true
-      });
+        const m = new THREE.Matrix4().fromArray(matrix);
+        const l = new THREE.Matrix4()
+          .makeTranslation(modelTransform.translateX, modelTransform.translateY, modelTransform.translateZ)
+          .scale(new THREE.Vector3(modelTransform.scale, -modelTransform.scale, modelTransform.scale))
+          .multiply(rotationX)
+          .multiply(rotationY)
+          .multiply(rotationZ);
 
-      // add 3D model layer
-      const customLayer = {
-        id: '3d-model',
-        type: 'custom',
-        renderingMode: '3d',
-        onAdd: function (map, gl) {
-          this.camera = new THREE.Camera();
-          this.scene = new THREE.Scene();
+        this.camera.projectionMatrix = m.multiply(l);
+        this.renderer.state.reset();
+        this.renderer.render(this.scene, this.camera);
+        map.triggerRepaint();
+      }
+    };
 
-          const light = new THREE.DirectionalLight(0xffffff, 3);
-          light.position.set(0, -70, 100).normalize();
-          this.scene.add(light);
-
-          const loader = new THREE.GLTFLoader();
-          loader.load(
-            'https://raw.githubusercontent.com/calvinchua-gmail/SOCAT/main/Test.glb',
-            (gltf) => {
-              this.scene.add(gltf.scene);
-            }
-          );
-
-          this.renderer = new THREE.WebGLRenderer({
-            canvas: map.getCanvas(),
-            context: gl,
-            antialias: true
-          });
-
-          this.renderer.autoClear = false;
-        },
-        render: function (gl, matrix) {
-          const rotationX = new THREE.Matrix4().makeRotationAxis(
-            new THREE.Vector3(1, 0, 0),
-            modelTransform.rotateX
-          );
-          const rotationY = new THREE.Matrix4().makeRotationAxis(
-            new THREE.Vector3(0, 1, 0),
-            modelTransform.rotateY
-          );
-          const rotationZ = new THREE.Matrix4().makeRotationAxis(
-            new THREE.Vector3(0, 0, 1),
-            modelTransform.rotateZ
-          );
-
-          const m = new THREE.Matrix4().fromArray(matrix);
-          const l = new THREE.Matrix4()
-            .makeTranslation(
-              modelTransform.translateX,
-              modelTransform.translateY,
-              modelTransform.translateZ
-            )
-            .scale(
-              new THREE.Vector3(
-                modelTransform.scale,
-                -modelTransform.scale,
-                modelTransform.scale
-              )
-            )
-            .multiply(rotationX)
-            .multiply(rotationY)
-            .multiply(rotationZ);
-
-          this.camera.projectionMatrix = m.multiply(l);
-          this.renderer.state.reset();
-          this.renderer.render(this.scene, this.camera);
-          map.triggerRepaint();
-        }
-      };
-
-      map.on('style.load', () => {
-        map.addLayer(customLayer, 'waterway-label');
-      });
-    </script>
-  </body>
+    map.on('style.load', () => {
+      map.addLayer(customLayer);
+    });
+  </script>
+</body>
 </html>
